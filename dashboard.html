@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Spam Detector</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',sans-serif;background:#0f0f1a;color:#e2e2f0;min-height:100vh}
+    header{background:#1a1a2e;border-bottom:1px solid #2a2a4a;padding:1rem 2rem;display:flex;align-items:center;gap:12px}
+    header h1{font-size:20px;font-weight:600;color:#a78bfa}
+    .container{max-width:980px;margin:0 auto;padding:1.5rem}
+    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:1.5rem}
+    .stat-card{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:12px;padding:1.1rem;text-align:center}
+    .stat-card .val{font-size:26px;font-weight:700;color:#a78bfa}
+    .stat-card .lbl{font-size:11px;color:#666;margin-top:4px;text-transform:uppercase;letter-spacing:.05em}
+    .card{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:14px;padding:1.25rem;margin-bottom:1.25rem}
+    .card h2{font-size:14px;font-weight:600;color:#c4b5fd;margin-bottom:.85rem}
+    textarea{width:100%;background:#0f0f1a;border:1px solid #2a2a4a;border-radius:8px;color:#e2e2f0;font-size:14px;padding:12px;resize:vertical;min-height:90px;outline:none;transition:border .2s}
+    textarea:focus{border-color:#7c3aed}
+    button{margin-top:10px;background:#7c3aed;color:#fff;border:none;border-radius:8px;padding:10px 26px;font-size:14px;font-weight:600;cursor:pointer}
+    button:hover{background:#6d28d9}
+    button:disabled{background:#333;cursor:not-allowed}
+    .result-box{border-radius:10px;padding:1rem 1.25rem;margin-top:1rem;display:none;align-items:center;gap:16px;border:1px solid}
+    .result-box.spam{background:#2d0a0a;border-color:#7f1d1d}
+    .result-box.ham{background:#052e16;border-color:#14532d}
+    .result-icon{font-size:30px}
+    .result-label{font-size:18px;font-weight:700}
+    .result-conf{font-size:13px;color:#aaa;margin-top:2px}
+    .charts-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:1.25rem}
+    .chart-card{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:14px;padding:1.25rem}
+    .chart-card h3{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.75rem}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th{text-align:left;color:#555;padding:6px 8px;border-bottom:1px solid #2a2a4a}
+    td{padding:8px;border-bottom:1px solid #1a1a30;color:#ccc;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .spam-cell{color:#f87171;font-weight:600}
+    .ham-cell{color:#4ade80;font-weight:600}
+    .empty{text-align:center;color:#444;padding:2rem;font-size:13px}
+    @media(max-width:600px){.charts-row{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header>
+  <span style="font-size:22px">📧</span>
+  <h1>Spam Detector</h1>
+  <span style="font-size:13px;color:#555;margin-left:4px">TF-IDF · Logistic Regression</span>
+  <span style="margin-left:auto;font-size:12px;color:#4ade80">● Live</span>
+</header>
+
+<div class="container">
+  <div class="stats-grid">
+    <div class="stat-card"><div class="val" id="s-total">0</div><div class="lbl">Total Checked</div></div>
+    <div class="stat-card"><div class="val" id="s-spam" style="color:#f87171">0</div><div class="lbl">Spam</div></div>
+    <div class="stat-card"><div class="val" id="s-ham" style="color:#4ade80">0</div><div class="lbl">Ham</div></div>
+    <div class="stat-card"><div class="val" id="s-rate">0%</div><div class="lbl">Spam Rate</div></div>
+    <div class="stat-card"><div class="val" id="s-conf">—</div><div class="lbl">Avg Confidence</div></div>
+  </div>
+
+  <div class="card">
+    <h2>🔍 Check a Message</h2>
+    <textarea id="msg" placeholder="Paste any email or SMS here... (Ctrl+Enter to submit)"></textarea>
+    <button id="btn" onclick="check()">Analyze ↗</button>
+    <div class="result-box" id="result-box">
+      <div class="result-icon" id="res-icon"></div>
+      <div>
+        <div class="result-label" id="res-label"></div>
+        <div class="result-conf" id="res-conf"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <div class="chart-card">
+      <h3>Spam vs Ham</h3>
+      <canvas id="donut" height="190"></canvas>
+    </div>
+    <div class="chart-card">
+      <h3>Confidence trend</h3>
+      <canvas id="line" height="190"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📋 Recent History</h2>
+    <div id="hist-wrap"><p class="empty">No messages checked yet.</p></div>
+  </div>
+</div>
+
+<script>
+  const API = window.location.origin;
+
+  const donut = new Chart(document.getElementById('donut'), {
+    type:'doughnut',
+    data:{labels:['Ham','Spam'],datasets:[{data:[0,0],
+      backgroundColor:['#4ade80','#f87171'],borderColor:'#1a1a2e',borderWidth:3}]},
+    options:{plugins:{legend:{labels:{color:'#aaa',font:{size:12}}}},cutout:'70%'}
+  });
+
+  const line = new Chart(document.getElementById('line'), {
+    type:'line',
+    data:{labels:[],datasets:[{label:'Confidence',data:[],
+      borderColor:'#a78bfa',backgroundColor:'rgba(167,139,250,0.1)',
+      fill:true,tension:0.4,pointRadius:4}]},
+    options:{
+      scales:{
+        y:{min:0,max:1,ticks:{color:'#555'},grid:{color:'#1e1e38'}},
+        x:{ticks:{color:'#555',maxTicksLimit:8},grid:{color:'#1e1e38'}}
+      },
+      plugins:{legend:{display:false}}
+    }
+  });
+
+  async function check() {
+    const msg = document.getElementById('msg').value.trim();
+    if (!msg) return;
+    const btn = document.getElementById('btn');
+    btn.disabled = true; btn.textContent = 'Analyzing...';
+    try {
+      const r = await fetch(`${API}/predict`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({message: msg})
+      });
+      const d = await r.json();
+      const box = document.getElementById('result-box');
+      box.className = `result-box ${d.label}`;
+      box.style.display = 'flex';
+      document.getElementById('res-icon').textContent  = d.label==='spam' ? '🚨' : '✅';
+      document.getElementById('res-label').textContent = d.label==='spam' ? 'SPAM DETECTED' : 'HAM — Looks Safe';
+      document.getElementById('res-conf').textContent  = `Confidence: ${(d.confidence*100).toFixed(1)}%`;
+      line.data.labels.push(new Date().toLocaleTimeString());
+      line.data.datasets[0].data.push(d.confidence);
+      line.update();
+      await refreshStats();
+      await refreshHistory();
+    } catch(e) { alert('API error — check your ngrok URL.'); }
+    btn.disabled = false; btn.textContent = 'Analyze ↗';
+  }
+
+  async function refreshStats() {
+    const d = await (await fetch(`${API}/stats`)).json();
+    document.getElementById('s-total').textContent = d.total;
+    document.getElementById('s-spam').textContent  = d.spam;
+    document.getElementById('s-ham').textContent   = d.ham;
+    document.getElementById('s-rate').textContent  = (d.spam_rate*100).toFixed(1)+'%';
+    document.getElementById('s-conf').textContent  = (d.avg_conf*100).toFixed(1)+'%';
+    donut.data.datasets[0].data = [d.ham, d.spam];
+    donut.update();
+  }
+
+  async function refreshHistory() {
+    const d = await (await fetch(`${API}/history`)).json();
+    const wrap = document.getElementById('hist-wrap');
+    if (!d.history.length) { wrap.innerHTML='<p class="empty">No messages yet.</p>'; return; }
+    wrap.innerHTML = `<table>
+      <thead><tr><th>Message</th><th>Label</th><th>Confidence</th><th>Time</th></tr></thead>
+      <tbody>${d.history.map(h=>`<tr>
+        <td>${h.message}</td>
+        <td class="${h.label}-cell">${h.label.toUpperCase()}</td>
+        <td>${(h.confidence*100).toFixed(1)}%</td>
+        <td>${new Date(h.time).toLocaleTimeString()}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+
+  document.getElementById('msg').addEventListener('keydown', e => {
+    if (e.ctrlKey && e.key==='Enter') check();
+  });
+</script>
+</body>
+</html>
