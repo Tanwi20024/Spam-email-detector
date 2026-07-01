@@ -1,3 +1,5 @@
+
+Check out the detector at https://huggingface.co/spaces/tonniii/ML-project
 ---
 title: ML Project
 emoji: 🏆
